@@ -4,8 +4,8 @@ import { Feather } from '@expo/vector-icons';
 import { useSettingsStore } from '../../src/store/settingsStore';
 
 export default function TabsLayout() {
-  const { theme } = useSettingsStore();
-  const isLight = theme === 'light';
+  const { appTheme } = useSettingsStore();
+  const isLight = appTheme === 'light';
 
   return (
     <Tabs 

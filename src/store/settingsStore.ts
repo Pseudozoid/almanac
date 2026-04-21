@@ -8,24 +8,28 @@ interface SettingsState {
   fontFamily: FontFamily;
   fontSize: number;
   lineHeight: number;
-  theme: 'light' | 'dark';
+  appTheme: 'light' | 'dark';
+  readerTheme: 'light' | 'dark';
   setFontFamily: (font: FontFamily) => void;
   setFontSize: (size: number) => void;
   setLineHeight: (height: number) => void;
-  toggleTheme: () => void;
+  toggleAppTheme: () => void;
+  toggleReaderTheme: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      fontFamily: 'EB Garamond', // Default to imperialistic font
-      fontSize: 18, // slightly larger for elegant readability
+      fontFamily: 'EB Garamond',
+      fontSize: 18,
       lineHeight: 1.6,
-      theme: 'light',
+      appTheme: 'light',
+      readerTheme: 'light',
       setFontFamily: (fontFamily) => set({ fontFamily }),
       setFontSize: (fontSize) => set({ fontSize }),
       setLineHeight: (lineHeight) => set({ lineHeight }),
-      toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
+      toggleAppTheme: () => set((state) => ({ appTheme: state.appTheme === 'light' ? 'dark' : 'light' })),
+      toggleReaderTheme: () => set((state) => ({ readerTheme: state.readerTheme === 'light' ? 'dark' : 'light' })),
     }),
     {
       name: 'almanac-settings-storage',

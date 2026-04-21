@@ -32,7 +32,9 @@ export const useLibraryStore = create<LibraryState>()(
         })),
       addQuote: (quote) => set((state) => ({ quotes: [...state.quotes, quote] })),
       removeQuote: (id) =>
-        set((state) => ({ quotes: state.quotes.filter((q) => q.id !== id) })),
+        set((state) => ({
+          quotes: state.quotes.filter((q) => q.id !== id),
+        })),
     }),
     {
       name: 'almanac-library-storage',

@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { View, FlatList, Alert } from 'react-native';
+import { View, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { useLibraryStore } from '../store/libraryStore';
 import { Typography } from '../components/ui/Typography';
 import { Card } from '../components/ui/Card';
@@ -10,8 +10,8 @@ import { Feather } from '@expo/vector-icons';
 import { useSettingsStore } from '../store/settingsStore';
 
 export const HighlightsScreen = () => {
-  const { quotes } = useLibraryStore();
-  const { theme } = useSettingsStore();
+  const { quotes, removeQuote } = useLibraryStore();
+  const { appTheme } = useSettingsStore();
   
   // Store refs for each quote card
   const viewShotRefs = useRef<{ [key: string]: ViewShot | null }>({});
@@ -22,6 +22,13 @@ export const HighlightsScreen = () => {
 
   const handleCopyText = (quote: any) => {
     copyPlainText(quote.text, quote.bookTitle, quote.bookAuthor);
+  };
+
+  const confirmDelete = (id: string) => {
+    Alert.alert('Delete Quote', 'Are you sure you want to delete this highlight?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => removeQuote(id) },
+    ]);
   };
 
   const handleShareImage = async (id: string) => {
@@ -37,7 +44,7 @@ export const HighlightsScreen = () => {
   };
 
   const renderQuote = ({ item }: { item: any }) => (
-    <View className="mb-8">
+    <View className="mb-8 relative">
       <ViewShot 
         ref={(ref: any) => { viewShotRefs.current[item.id] = ref; }}
         options={{ format: 'png', quality: 0.9 }}
@@ -57,6 +64,13 @@ export const HighlightsScreen = () => {
         </Card>
       </ViewShot>
       
+      <TouchableOpacity 
+        onPress={() => confirmDelete(item.id)} 
+        className="absolute top-4 right-4 p-2 bg-background/50 rounded-full"
+      >
+        <Feather name="trash-2" size={16} color="#CC241D" />
+      </TouchableOpacity>
+      
       <View className="flex-row justify-center mt-4 space-x-4">
         <Button title="Copy" iconName="copy" variant="ghost" size="sm" onPress={() => handleCopyText(item)} />
         <Button title="Share Text" iconName="share-2" variant="ghost" size="sm" onPress={() => handleShareText(item)} />
@@ -66,12 +80,12 @@ export const HighlightsScreen = () => {
   );
 
   return (
-    <View className="flex-1 bg-background p-5 pt-16">
+    <View className="flex-1 p-5 pt-16">
       <Typography variant="h1" className="mb-8 text-center">Highlights</Typography>
       
       {quotes.length === 0 ? (
         <View className="flex-1 justify-center items-center pb-20">
-          <Feather name="bookmark" size={64} color={theme === 'light' ? '#D1C7B7' : '#504945'} style={{ marginBottom: 24 }} />
+          <Feather name="bookmark" size={64} color={appTheme === 'light' ? '#D1C7B7' : '#504945'} style={{ marginBottom: 24 }} />
           <Typography variant="h2" className="mb-2">No highlights yet</Typography>
           <Typography color="muted" className="text-center px-4">
             Select text while reading to save your favorite quotes here.

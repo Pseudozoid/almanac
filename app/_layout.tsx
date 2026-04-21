@@ -7,7 +7,7 @@ import { useColorScheme } from 'nativewind';
 import '../global.css';
 
 export default function Layout() {
-  const { theme } = useSettingsStore();
+  const { appTheme } = useSettingsStore();
   const { setColorScheme } = useColorScheme();
   
   const [fontsLoaded] = useFonts({
@@ -18,15 +18,15 @@ export default function Layout() {
   });
 
   useEffect(() => {
-    setColorScheme(theme);
-  }, [theme, setColorScheme]);
+    setColorScheme(appTheme);
+  }, [appTheme, setColorScheme]);
 
   if (!fontsLoaded) {
     return null;
   }
 
   // Determine the background color based on the theme to pass to contentStyle
-  const bgColor = theme === 'dark' ? '#1D2021' : '#FDFBF7';
+  const bgColor = appTheme === 'dark' ? '#1D2021' : '#FDFBF7';
 
   return (
     <Stack 

@@ -1,12 +1,14 @@
 import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import { useGoalsStore } from '../store/goalsStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { Typography } from '../components/ui/Typography';
 import { Card } from '../components/ui/Card';
 import { Feather } from '@expo/vector-icons';
 
 export const GoalsScreen = () => {
   const { dailyGoalMinutes, currentDayMinutes, streakDays, checkAndUpdateStreak } = useGoalsStore();
+  const { appTheme } = useSettingsStore();
 
   useEffect(() => {
     checkAndUpdateStreak();
@@ -15,7 +17,7 @@ export const GoalsScreen = () => {
   const progress = Math.min((currentDayMinutes / dailyGoalMinutes) * 100, 100);
 
   return (
-    <View className="flex-1 bg-background p-5 pt-16">
+    <View className="flex-1 p-5 pt-16">
       <View className="flex-row items-center mb-8">
         <Typography variant="h1">Reading Goals</Typography>
       </View>

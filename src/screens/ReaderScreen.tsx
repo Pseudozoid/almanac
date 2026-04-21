@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Modal, Animated, Dimensions } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { View, TouchableOpacity, ActivityIndicator, Modal, Animated, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLibraryStore } from '../store/libraryStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -14,7 +14,9 @@ export const ReaderScreen = () => {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const { books, addQuote } = useLibraryStore();
-  const { fontFamily, fontSize, lineHeight, theme, toggleTheme } = useSettingsStore();
+  
+  // Use readerTheme instead of appTheme
+  const { fontFamily, fontSize, lineHeight, readerTheme, toggleReaderTheme, appTheme } = useSettingsStore();
   
   const book = books.find(b => b.id === id);
   const webViewRef = useRef<WebView>(null);
@@ -27,6 +29,12 @@ export const ReaderScreen = () => {
   const [selectedText, setSelectedText] = useState<string>('');
   const slideAnim = useRef(new Animated.Value(0)).current;
 
+  // Calculate current style variables
+  const bgColor = readerTheme === 'dark' ? '#1D2021' : '#FDFBF7';
+  const textColor = readerTheme === 'dark' ? '#EBDBB2' : '#2C2A28';
+  const selectionColor = readerTheme === 'dark' ? '#D79921' : '#C39738';
+  const fontFam = fontFamily === 'Playfair Display' || fontFamily === 'EB Garamond' ? 'serif' : 'sans-serif';
+
   useEffect(() => {
     if (book) {
       loadBookData();
@@ -36,7 +44,6 @@ export const ReaderScreen = () => {
   const loadBookData = async () => {
     if (!book) return;
     try {
-      // Read the file as base64
       const base64 = await FileSystem.readAsStringAsync(book.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -44,11 +51,11 @@ export const ReaderScreen = () => {
     } catch (e) {
       console.error("Failed to load book data", e);
       setLoading(false);
+      Alert.alert("Error", "Could not load the book file.");
     }
   };
 
   useEffect(() => {
-    // Animate the action bar in or out
     Animated.spring(slideAnim, {
       toValue: selectedText.length > 0 ? 1 : 0,
       useNativeDriver: true,
@@ -57,8 +64,19 @@ export const ReaderScreen = () => {
     }).start();
   }, [selectedText]);
 
-  // The injected JavaScript uses a debouncer to avoid spamming messages,
-  // and detects clicks outside to clear the selection.
+  // Dynamically update styles without unmounting the webview
+  useEffect(() => {
+    if (!loading && webViewRef.current) {
+      const stylePayload = { bgColor, textColor, selectionColor, fontFam, fontSize, lineHeight };
+      webViewRef.current.injectJavaScript(`
+        if (typeof updateStyles === 'function') {
+          updateStyles(${JSON.stringify(stylePayload)});
+        }
+        true;
+      `);
+    }
+  }, [bgColor, textColor, selectionColor, fontFam, fontSize, lineHeight, loading]);
+
   const injectedJavaScript = `
     let selectionTimeout;
     document.addEventListener('selectionchange', function() {
@@ -70,12 +88,10 @@ export const ReaderScreen = () => {
           type: 'selection',
           text: text
         }));
-      }, 300); // 300ms debounce
+      }, 300);
     });
 
-    // Clear selection if tapping outside
     document.addEventListener('touchstart', function(e) {
-      // Allow a tiny delay so actual selection logic isn't interrupted
       setTimeout(() => {
         const selection = window.getSelection();
         if (selection.toString().length === 0) {
@@ -92,8 +108,19 @@ export const ReaderScreen = () => {
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'selection') {
+      if (data.type === 'ready' && base64Content) {
+        // Init with appropriate parser
+        if (book?.type === 'PDF') {
+          webViewRef.current?.injectJavaScript(`initPdf("${base64Content}"); true;`);
+        } else {
+          webViewRef.current?.injectJavaScript(`initEpub("${base64Content}"); true;`);
+        }
+        setLoading(false);
+      } else if (data.type === 'selection') {
         setSelectedText(data.text);
+      } else if (data.type === 'error') {
+        console.error("WebView Error:", data.message);
+        Alert.alert("Error", "Failed to parse the document.");
       }
     } catch (e) {
       console.error(e);
@@ -110,9 +137,7 @@ export const ReaderScreen = () => {
         text: selectedText,
         createdAt: Date.now()
       });
-      // Clear selection UI
       setSelectedText('');
-      // Tell webview to clear actual selection
       webViewRef.current?.injectJavaScript('window.getSelection().removeAllRanges(); true;');
     }
   };
@@ -134,149 +159,217 @@ export const ReaderScreen = () => {
     );
   }
 
-  const bgColor = theme === 'light' ? '#FDFBF7' : '#1D2021';
-  const textColor = theme === 'light' ? '#2C2A28' : '#EBDBB2';
-  const selectionColor = theme === 'light' ? '#C39738' : '#D79921';
-  const fontFam = fontFamily === 'Playfair Display' || fontFamily === 'EB Garamond' ? 'serif' : 'sans-serif';
+  // Memoize HTML so changes to theme/fonts don't remount the WebView
+  const htmlContent = useMemo(() => {
+    return `
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+          <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+          <style id="dynamic-styles"></style>
+          <style>
+            body {
+              margin: 0;
+              padding: 0;
+              width: 100vw;
+              height: 100vh;
+              overflow-x: hidden;
+            }
+            #viewer {
+              width: 100%;
+              height: 100%;
+              overflow-y: auto;
+            }
+            /* PDF Text Container Styles */
+            .pdf-page {
+              margin-bottom: 2em;
+              padding: 0 24px;
+            }
+            .pdf-page p {
+              text-indent: 1.5em;
+              text-align: justify;
+              margin-bottom: 1em;
+            }
+          </style>
+        </head>
+        <body>
+          <div id="viewer"></div>
+          <script>
+            let bookEpub;
+            let rendition;
+            let currentStyles = { bgColor: '${bgColor}', textColor: '${textColor}', selectionColor: '${selectionColor}', fontFam: '${fontFam}', fontSize: ${fontSize}, lineHeight: ${lineHeight} };
+            
+            function updateStyles(styles) {
+              currentStyles = styles;
+              const { bgColor, textColor, selectionColor, fontFam, fontSize, lineHeight } = styles;
+              
+              document.body.style.backgroundColor = bgColor;
+              document.body.style.color = textColor;
+              document.body.style.fontFamily = fontFam;
+              document.body.style.fontSize = fontSize + 'px';
+              document.body.style.lineHeight = lineHeight;
+              
+              document.getElementById('dynamic-styles').innerHTML = "::selection { background: " + selectionColor + " !important; color: " + bgColor + " !important; }";
+              
+              if (rendition) {
+                const themeName = "theme-" + Date.now();
+                rendition.themes.register(themeName, {
+                  "body": {
+                    "background": bgColor + " !important",
+                    "color": textColor + " !important",
+                    "font-family": fontFam + " !important",
+                    "font-size": fontSize + "px !important",
+                    "line-height": lineHeight + " !important",
+                    "padding": "24px !important"
+                  },
+                  "p, div, span, h1, h2, h3, h4, h5, h6, li, a": {
+                    "color": textColor + " !important",
+                    "background": "transparent !important",
+                    "font-family": fontFam + " !important"
+                  },
+                  "::selection": {
+                    "background": selectionColor + " !important",
+                    "color": bgColor + " !important"
+                  }
+                });
+                rendition.themes.select(themeName);
+              }
+            }
 
-  // For the MVP, we embed a minimal epub.js script from a reliable CDN.
-  // In a production app, this would be bundled locally.
-  const generateHtml = () => `
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
-        <style>
-          body {
-            background-color: ${bgColor};
-            color: ${textColor};
-            margin: 0;
-            padding: 0;
-            overflow: hidden; /* epubjs handles scrolling */
-            width: 100vw;
-            height: 100vh;
-          }
-          #viewer {
-            width: 100%;
-            height: 100%;
-          }
-        </style>
-      </head>
-      <body>
-        <div id="viewer"></div>
-        <script>
-          // We wait for the base64 content to be injected
-          let book;
-          let rendition;
-          
-          function initEpub(base64Data) {
-            try {
-              // Convert base64 to ArrayBuffer
-              var binary_string = window.atob(base64Data);
+            // Apply initial styles
+            updateStyles(currentStyles);
+
+            function base64ToUint8Array(base64) {
+              var binary_string = window.atob(base64);
               var len = binary_string.length;
               var bytes = new Uint8Array(len);
               for (var i = 0; i < len; i++) {
                 bytes[i] = binary_string.charCodeAt(i);
               }
-              var buffer = bytes.buffer;
-
-              book = ePub(buffer);
-              rendition = book.renderTo("viewer", {
-                width: "100%",
-                height: "100%",
-                spread: "none",
-                manager: "continuous",
-                flow: "scrolled"
-              });
-              
-              rendition.themes.default({
-                "body": {
-                  "background": "${bgColor} !important",
-                  "color": "${textColor} !important",
-                  "font-family": "${fontFam} !important",
-                  "font-size": "${fontSize}px !important",
-                  "line-height": "${lineHeight} !important",
-                  "padding": "24px !important"
-                },
-                "::selection": {
-                  "background": "${selectionColor} !important",
-                  "color": "${bgColor} !important"
-                }
-              });
-
-              rendition.display();
-
-              // Pass selection events from the iframe up to the parent window
-              rendition.on("selected", function(cfiRange, contents) {
-                const selection = contents.window.getSelection();
-                const text = selection.toString().trim();
-                if (text.length > 0) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'selection',
-                    text: text
-                  }));
-                }
-              });
-
-              // Also hook up touch events inside the iframe to clear selection
-              rendition.on("touchstart", function(event, contents) {
-                setTimeout(() => {
-                  const selection = contents.window.getSelection();
-                  if (selection.toString().length === 0) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'selection',
-                      text: ''
-                    }));
-                  }
-                }, 100);
-              });
-
-            } catch(err) {
-              document.body.innerHTML = "<h2 style='padding:24px'>Error loading EPUB: " + err.message + "</h2>";
+              return bytes;
             }
-          }
-          
-          // Inform RN that we are ready
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
-        </script>
-      </body>
-    </html>
-  `;
 
-  // We inject the base64 data only after the webview is ready
-  const handleReadyMessage = (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'ready' && base64Content) {
-        webViewRef.current?.injectJavaScript(`initEpub("${base64Content}"); true;`);
-        setLoading(false);
-      } else if (data.type === 'selection') {
-        setSelectedText(data.text);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
+            function initEpub(base64Data) {
+              try {
+                var bytes = base64ToUint8Array(base64Data);
+                bookEpub = ePub(bytes.buffer);
+                rendition = bookEpub.renderTo("viewer", {
+                  width: "100%",
+                  height: "100%",
+                  spread: "none",
+                  manager: "continuous",
+                  flow: "scrolled"
+                });
+                
+                // Set overrides instead of just default theme so it updates dynamically
+                updateStyles(currentStyles);
+
+                rendition.display();
+
+                rendition.on("selected", function(cfiRange, contents) {
+                  const selection = contents.window.getSelection();
+                  const text = selection.toString().trim();
+                  if (text.length > 0) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selection', text: text }));
+                  }
+                });
+
+                rendition.on("touchstart", function(event, contents) {
+                  setTimeout(() => {
+                    const selection = contents.window.getSelection();
+                    if (selection.toString().length === 0) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selection', text: '' }));
+                    }
+                  }, 100);
+                });
+
+              } catch(err) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: err.message }));
+              }
+            }
+
+            async function initPdf(base64Data) {
+              try {
+                // Remove epubjs strict overflow to allow standard scrolling for PDF divs
+                document.body.style.overflow = 'auto';
+                
+                var bytes = base64ToUint8Array(base64Data);
+                const pdfjsLib = window['pdfjs-dist/build/pdf'];
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                
+                const loadingTask = pdfjsLib.getDocument({data: bytes});
+                const pdf = await loadingTask.promise;
+                
+                const viewer = document.getElementById('viewer');
+                viewer.innerHTML = ''; 
+                
+                // Extract text from first 50 pages for MVP performance
+                const maxPages = Math.min(pdf.numPages, 50);
+                
+                for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+                  const page = await pdf.getPage(pageNum);
+                  const textContent = await page.getTextContent();
+                  
+                  const pageDiv = document.createElement('div');
+                  pageDiv.className = 'pdf-page';
+                  
+                  let lastY = -1;
+                  let p = document.createElement('p');
+                  
+                  for (let item of textContent.items) {
+                    // Start new paragraph if Y coordinate drops significantly
+                    if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 12) {
+                      pageDiv.appendChild(p);
+                      p = document.createElement('p');
+                    }
+                    p.textContent += item.str + ' ';
+                    lastY = item.transform[5];
+                  }
+                  pageDiv.appendChild(p);
+                  viewer.appendChild(pageDiv);
+                }
+                
+                if (pdf.numPages > 50) {
+                  const warning = document.createElement('p');
+                  warning.style.textAlign = 'center';
+                  warning.style.fontStyle = 'italic';
+                  warning.textContent = '... (Only first 50 pages loaded for preview) ...';
+                  viewer.appendChild(warning);
+                }
+                
+              } catch(err) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: err.message }));
+              }
+            }
+            
+            // Inform RN that we are ready
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
+          </script>
+        </body>
+      </html>
+    `;
+  }, []); // Empty dependency array prevents WebView from remounting!
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1">
       <View className="flex-row justify-between items-center p-4 pt-14 bg-surface border-b border-border-subtle shadow-sm z-10">
         <TouchableOpacity onPress={() => router.back()} className="p-2">
-          <Feather name="chevron-left" size={24} color={theme === 'light' ? '#2C2A28' : '#EBDBB2'} />
+          <Feather name="chevron-left" size={24} color={appTheme === 'light' ? '#2C2A28' : '#EBDBB2'} />
         </TouchableOpacity>
         <Typography variant="h3" numberOfLines={1} className="flex-1 text-center mx-4">{book.title}</Typography>
         <TouchableOpacity onPress={() => setShowSettings(true)} className="p-2">
-          <Feather name="settings" size={22} color={theme === 'light' ? '#2C2A28' : '#EBDBB2'} />
+          <Feather name="settings" size={22} color={appTheme === 'light' ? '#2C2A28' : '#EBDBB2'} />
         </TouchableOpacity>
       </View>
 
       <WebView
         ref={webViewRef}
         originWhitelist={['*']}
-        source={{ html: generateHtml() }}
+        source={{ html: htmlContent }}
         injectedJavaScript={injectedJavaScript}
-        onMessage={handleReadyMessage}
+        onMessage={handleMessage}
         style={{ backgroundColor: bgColor }}
       />
 
@@ -293,7 +386,7 @@ export const ReaderScreen = () => {
           transform: [{ 
             translateY: slideAnim.interpolate({
               inputRange: [0, 1],
-              outputRange: [350, 0] // Slide entirely off-screen
+              outputRange: [350, 0]
             }) 
           }] 
         }}
@@ -305,7 +398,7 @@ export const ReaderScreen = () => {
             setSelectedText('');
             webViewRef.current?.injectJavaScript('window.getSelection().removeAllRanges(); true;');
           }}>
-            <Feather name="x" size={24} color={theme === 'light' ? '#2C2A28' : '#EBDBB2'} />
+            <Feather name="x" size={24} color={appTheme === 'light' ? '#2C2A28' : '#EBDBB2'} />
           </TouchableOpacity>
         </View>
         <Typography variant="bodySmall" color="secondary" numberOfLines={2} className="mb-6 italic">
@@ -324,15 +417,15 @@ export const ReaderScreen = () => {
           <View className="bg-surface-elevated p-8 rounded-t-3xl shadow-lg border-t border-border-subtle max-h-[80%]">
             <Typography variant="h2" className="mb-6">Reading Settings</Typography>
             
-            {/* Theme Toggle */}
+            {/* Theme Toggle (Reader Specific) */}
             <View className="flex-row justify-between items-center mb-4 bg-surface p-4 rounded-xl border border-border-subtle">
               <View className="flex-row items-center">
-                <Feather name={theme === 'light' ? 'sun' : 'moon'} size={20} color={selectionColor} />
-                <Typography variant="body" className="ml-3 font-medium">Theme</Typography>
+                <Feather name={readerTheme === 'light' ? 'sun' : 'moon'} size={20} color={selectionColor} />
+                <Typography variant="body" className="ml-3 font-medium">Reader Theme</Typography>
               </View>
               <Button 
-                title={theme === 'light' ? 'Switch to Dark' : 'Switch to Light'} 
-                onPress={toggleTheme} 
+                title={readerTheme === 'light' ? 'Switch to Dark' : 'Switch to Light'} 
+                onPress={toggleReaderTheme} 
                 size="sm" 
                 variant="ghost" 
               />
