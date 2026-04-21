@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light Theme (Default, elegant paper style) */
+    --color-background: #FDFBF7;
+    --color-surface: #FFFFFF;
+    --color-surface-elevated: #F5F2EB;
+    
+    --color-primary: #C39738;
+    --color-primary-hover: #DDAA3E;
+    --color-primary-active: #AA822E;
+    
+    --color-accent-green: #687259;
+    --color-accent-red: #9B4A46;
+    --color-accent-blue: #4A6B7C;
+    --color-accent-aqua: #5B7A75;
+    --color-accent-orange: #C36A2D;
+    
+    --color-text-primary: #2C2A28;
+    --color-text-secondary: #5C5855;
+    --color-text-muted: #8C8681;
+    
+    --color-border-subtle: #EBE5DB;
+    --color-border-strong: #D1C7B7;
+  }
+
+  .dark {
+    /* Gruvbox Dark Theme */
+    --color-background: #1D2021;
+    --color-surface: #282828;
+    --color-surface-elevated: #32302F;
+    
+    --color-primary: #D79921;
+    --color-primary-hover: #E6A23C;
+    --color-primary-active: #B57614;
+    
+    --color-accent-green: #98971A;
+    --color-accent-red: #CC241D;
+    --color-accent-blue: #458588;
+    --color-accent-aqua: #689D6A;
+    --color-accent-orange: #D65D0E;
+    
+    --color-text-primary: #EBDBB2;
+    --color-text-secondary: #D5C4A1;
+    --color-text-muted: #A89984;
+    
+    --color-border-subtle: #3C3836;
+    --color-border-strong: #504945;
+  }
+}
